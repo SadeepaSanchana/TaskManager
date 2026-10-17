@@ -3,10 +3,11 @@
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
-import { PlusCircle, RefreshCw, UserCheck, UserPlus, LogOut, Shield, MessageSquare } from 'lucide-react';
+import { PlusCircle, RefreshCw, UserCheck, UserPlus, LogOut, Shield, MessageSquare, Trash2, Users } from 'lucide-react';
 
 interface LiveStatus {
   id: string;
+  task_id: string;
   status: string;
   remark: string | null;
   updated_at: string;
@@ -120,7 +121,7 @@ export default function AdminDashboard() {
   const fetchData = async () => {
     const { data: assignments } = await supabase
       .from('task_assignments')
-      .select('id, status, remark, updated_at, users_profile(name, email), tasks(title, description)');
+      .select('id, task_id, status, remark, updated_at, users_profile(name, email), tasks(title, description)');
 
     if (assignments) setStatuses(assignments as unknown as LiveStatus[]);
 
@@ -156,6 +157,22 @@ export default function AdminDashboard() {
       fetchData();
     }
     setAddingMember(false);
+  };
+
+  const handleDeleteMember = async (userId: string, userName: string) => {
+    if (!confirm(`Are you sure you want to delete member "${userName}"?`)) return;
+
+    const { error } = await supabase
+      .from('users_profile')
+      .delete()
+      .eq('id', userId);
+
+    if (error) {
+      alert('Error deleting member: ' + error.message);
+    } else {
+      alert('Member deleted successfully!');
+      fetchData();
+    }
   };
 
   const handleCreateTask = async (e: React.FormEvent) => {
@@ -209,6 +226,26 @@ export default function AdminDashboard() {
       alert('Task assigned successfully!');
     }
     setLoading(false);
+  };
+
+  const handleDeleteTask = async (taskId: string, taskTitle: string, status: string) => {
+    if (status !== 'Completed') {
+      return alert('Only completed tasks can be deleted!');
+    }
+
+    if (!confirm(`Delete completed task "${taskTitle}"?`)) return;
+
+    const { error } = await supabase
+      .from('tasks')
+      .delete()
+      .eq('id', taskId);
+
+    if (error) {
+      alert('Error deleting task: ' + error.message);
+    } else {
+      alert('Completed task deleted successfully!');
+      fetchData();
+    }
   };
 
   return (
@@ -297,6 +334,32 @@ export default function AdminDashboard() {
           </button>
         </form>
 
+        {/* Member Management List */}
+        <div className="bg-slate-900/80 p-6 rounded-3xl border border-slate-800 shadow-xl space-y-4">
+          <h2 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2 border-b pb-3 border-slate-800">
+            <Users size={18} className="text-blue-400" /> Manage Members & Admins
+          </h2>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {users.map((user) => (
+              <div key={user.id} className="bg-slate-800/80 p-3.5 rounded-2xl border border-slate-700/60 flex items-center justify-between">
+                <div>
+                  <div className="font-bold text-sm text-white">{user.name}</div>
+                  <div className="text-[11px] text-slate-400">{user.email || 'No email'} <span className="text-blue-400 font-semibold">[{user.role}]</span></div>
+                </div>
+
+                <button
+                  onClick={() => handleDeleteMember(user.id, user.name)}
+                  className="p-2 bg-red-600/20 hover:bg-red-600/40 text-red-400 rounded-xl transition border border-red-500/30"
+                  title="Delete Member"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+
         {/* Form 2: Create & Assign Task */}
         <form onSubmit={handleCreateTask} className="bg-slate-900/80 p-6 rounded-3xl border border-slate-800 shadow-xl space-y-4">
           <h2 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2 border-b pb-3 border-slate-800">
@@ -354,7 +417,7 @@ export default function AdminDashboard() {
           </button>
         </form>
 
-        {/* Realtime Progress Monitor Table with Remark Column */}
+        {/* Realtime Progress Monitor Table */}
         <div className="bg-slate-900/80 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
           <div className="p-4 border-b border-slate-800 bg-slate-900/90 flex items-center justify-between">
             <h2 className="font-bold text-slate-300 text-xs uppercase tracking-wider flex items-center gap-2">
@@ -372,8 +435,8 @@ export default function AdminDashboard() {
                   <th className="p-4">Member</th>
                   <th className="p-4">Task</th>
                   <th className="p-4">Status</th>
-                  <th className="p-4">Member Remark</th>
-                  <th className="p-4">Last Updated</th>
+                  <th className="p-4">Remark</th>
+                  <th className="p-4">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/80 text-xs">
@@ -415,8 +478,19 @@ export default function AdminDashboard() {
                           <span className="text-slate-600 text-xs italic">No remark</span>
                         )}
                       </td>
-                      <td className="p-4 text-slate-400 font-mono text-[11px]">
-                        {new Date(row.updated_at).toLocaleTimeString()}
+                      <td className="p-4">
+                        <button
+                          onClick={() => handleDeleteTask(row.task_id, row.tasks?.title, row.status)}
+                          disabled={row.status !== 'Completed'}
+                          className={`p-2 rounded-xl transition border flex items-center gap-1 text-[11px] font-bold ${
+                            row.status === 'Completed'
+                              ? 'bg-red-600/20 hover:bg-red-600/40 text-red-400 border-red-500/30 cursor-pointer'
+                              : 'bg-slate-800/40 text-slate-600 border-slate-800 cursor-not-allowed opacity-50'
+                          }`}
+                          title={row.status === 'Completed' ? 'Delete Task' : 'Only completed tasks can be deleted'}
+                        >
+                          <Trash2 size={14} /> Delete
+                        </button>
                       </td>
                     </tr>
                   ))
