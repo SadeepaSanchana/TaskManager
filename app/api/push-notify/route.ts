@@ -9,16 +9,16 @@ webpush.setVapidDetails(
 
 export async function POST(req: Request) {
   try {
-    const { subscription, title, body } = await req.json();
+    const { subscription, title, body, url } = await req.json();
 
     if (!subscription) {
       return NextResponse.json({ error: 'Subscription missing' }, { status: 400 });
     }
 
     const payload = JSON.stringify({
-      title: title || 'New Task Assigned!',
-      body: body || 'You have received a new task.',
-      url: '/member',
+      title: title || 'Task Update',
+      body: body || 'A task status has been updated.',
+      url: url || '/member',
     });
 
     await webpush.sendNotification(subscription, payload);

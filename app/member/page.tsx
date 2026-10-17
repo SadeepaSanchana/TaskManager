@@ -3,11 +3,12 @@
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
-import { CheckCircle2, Clock, PlayCircle, RefreshCw, Smartphone, LogOut } from 'lucide-react';
+import { CheckCircle2, Clock, PlayCircle, RefreshCw, Smartphone, LogOut, MessageSquare } from 'lucide-react';
 
 interface TaskAssignment {
   id: string;
   status: string;
+  remark: string | null;
   tasks: {
     title: string;
     description: string;
@@ -22,12 +23,12 @@ export default function MemberDashboard() {
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState('');
   const [loading, setLoading] = useState(true);
+  const [remarks, setRemarks] = useState<{ [key: string]: string }>({});
 
   useEffect(() => {
     checkUserAndFetch();
   }, []);
 
-  // Base64 VAPID Key conversion helper
   function urlBase64ToUint8Array(base64String: string) {
     const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
     const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
@@ -39,7 +40,6 @@ export default function MemberDashboard() {
     return outputArray;
   }
 
-  // Register Service Worker and Save Web Push Subscription
   const registerPushNotifications = async (userId: string) => {
     if ('serviceWorker' in navigator && 'PushManager' in window) {
       try {
@@ -83,9 +83,7 @@ export default function MemberDashboard() {
       setUserEmail(profile.email || user.email || '');
     }
 
-    // Register Web Push for the logged in user
     registerPushNotifications(user.id);
-
     fetchTasks(user.id);
   };
 
@@ -93,24 +91,64 @@ export default function MemberDashboard() {
     setLoading(true);
     const { data, error } = await supabase
       .from('task_assignments')
-      .select('id, status, tasks(title, description)')
+      .select('id, status, remark, tasks(title, description)')
       .eq('user_id', userId);
 
     if (!error && data) {
       setAssignments(data as unknown as TaskAssignment[]);
+      const initialRemarks: { [key: string]: string } = {};
+      data.forEach((item: any) => {
+        initialRemarks[item.id] = item.remark || '';
+      });
+      setRemarks(initialRemarks);
     }
     setLoading(false);
   };
 
-  const updateStatus = async (id: string, newStatus: string) => {
+  const notifyAdmins = async (taskTitle: string, newStatus: string, remarkText: string) => {
+    // Fetch all admin profiles with subscriptions
+    const { data: admins } = await supabase
+      .from('users_profile')
+      .select('push_subscription')
+      .eq('role', 'admin');
+
+    if (admins) {
+      for (const admin of admins) {
+        if (admin.push_subscription) {
+          await fetch('/api/push-notify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              subscription: admin.push_subscription,
+              title: `🔄 Task Update: ${userName}`,
+              body: `Task: "${taskTitle}" is now ${newStatus}.${remarkText ? ` Remark: ${remarkText}` : ''}`,
+              url: '/admin',
+            }),
+          });
+        }
+      }
+    }
+  };
+
+  const updateStatus = async (id: string, newStatus: string, taskTitle: string) => {
+    const currentRemark = remarks[id] || '';
+
     setAssignments((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, status: newStatus } : item))
+      prev.map((item) => (item.id === id ? { ...item, status: newStatus, remark: currentRemark } : item))
     );
 
-    await supabase
+    const { error } = await supabase
       .from('task_assignments')
-      .update({ status: newStatus, updated_at: new Date().toISOString() })
+      .update({
+        status: newStatus,
+        remark: currentRemark,
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', id);
+
+    if (!error) {
+      await notifyAdmins(taskTitle, newStatus, currentRemark);
+    }
   };
 
   const handleSignOut = async () => {
@@ -187,9 +225,24 @@ export default function MemberDashboard() {
                   )}
                 </div>
 
+                {/* Remark Input Field */}
+                <div className="space-y-1">
+                  <label className="text-[11px] font-semibold text-slate-400 flex items-center gap-1">
+                    <MessageSquare size={12} className="text-blue-400" /> Add Remark / Note:
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Enter remark (e.g. Completed 50%, Waiting for approval...)"
+                    value={remarks[item.id] || ''}
+                    onChange={(e) => setRemarks({ ...remarks, [item.id]: e.target.value })}
+                    className="w-full bg-slate-900/80 border border-slate-700/80 rounded-xl p-2.5 text-xs text-white outline-none focus:border-blue-500 transition"
+                  />
+                </div>
+
+                {/* Status Buttons */}
                 <div className="grid grid-cols-3 gap-1.5 pt-2 border-t border-slate-700/50">
                   <button
-                    onClick={() => updateStatus(item.id, 'Pending')}
+                    onClick={() => updateStatus(item.id, 'Pending', item.tasks?.title)}
                     className={`py-2 px-1 text-[11px] font-bold rounded-xl flex items-center justify-center gap-1 border transition ${
                       item.status === 'Pending'
                         ? 'bg-amber-500/20 border-amber-500/80 text-amber-300 shadow-sm'
@@ -200,7 +253,7 @@ export default function MemberDashboard() {
                   </button>
 
                   <button
-                    onClick={() => updateStatus(item.id, 'In Progress')}
+                    onClick={() => updateStatus(item.id, 'In Progress', item.tasks?.title)}
                     className={`py-2 px-1 text-[11px] font-bold rounded-xl flex items-center justify-center gap-1 border transition ${
                       item.status === 'In Progress'
                         ? 'bg-blue-500/20 border-blue-500/80 text-blue-300 shadow-sm'
@@ -211,7 +264,7 @@ export default function MemberDashboard() {
                   </button>
 
                   <button
-                    onClick={() => updateStatus(item.id, 'Completed')}
+                    onClick={() => updateStatus(item.id, 'Completed', item.tasks?.title)}
                     className={`py-2 px-1 text-[11px] font-bold rounded-xl flex items-center justify-center gap-1 border transition ${
                       item.status === 'Completed'
                         ? 'bg-emerald-500/20 border-emerald-500/80 text-emerald-300 shadow-sm'

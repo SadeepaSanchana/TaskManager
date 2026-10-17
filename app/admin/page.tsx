@@ -3,11 +3,12 @@
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
-import { PlusCircle, RefreshCw, UserCheck, UserPlus, LogOut, Shield } from 'lucide-react';
+import { PlusCircle, RefreshCw, UserCheck, UserPlus, LogOut, Shield, MessageSquare } from 'lucide-react';
 
 interface LiveStatus {
   id: string;
   status: string;
+  remark: string | null;
   updated_at: string;
   users_profile: { name: string; email: string };
   tasks: { title: string; description: string };
@@ -28,13 +29,11 @@ export default function AdminDashboard() {
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [currentAdmin, setCurrentAdmin] = useState<string>('');
   
-  // New Task Form States
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [selectedUser, setSelectedUser] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // New Member Form States
   const [newMemberName, setNewMemberName] = useState('');
   const [newMemberEmail, setNewMemberEmail] = useState('');
   const [newMemberRole, setNewMemberRole] = useState('member');
@@ -59,6 +58,42 @@ export default function AdminDashboard() {
     };
   }, []);
 
+  function urlBase64ToUint8Array(base64String: string) {
+    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) {
+      outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+  }
+
+  const registerAdminPush = async (userId: string) => {
+    if ('serviceWorker' in navigator && 'PushManager' in window) {
+      try {
+        const register = await navigator.serviceWorker.register('/sw.js');
+        const permission = await Notification.requestPermission();
+        if (permission !== 'granted') return;
+
+        const publicVapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+        if (!publicVapidKey) return;
+
+        const subscription = await register.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(publicVapidKey),
+        });
+
+        await supabase
+          .from('users_profile')
+          .update({ push_subscription: subscription })
+          .eq('id', userId);
+      } catch (err) {
+        console.error('Admin Push Error:', err);
+      }
+    }
+  };
+
   const checkAdminAndFetch = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
@@ -78,13 +113,14 @@ export default function AdminDashboard() {
     }
 
     setCurrentAdmin(profile.name);
+    registerAdminPush(user.id);
     fetchData();
   };
 
   const fetchData = async () => {
     const { data: assignments } = await supabase
       .from('task_assignments')
-      .select('id, status, updated_at, users_profile(name, email), tasks(title, description)');
+      .select('id, status, remark, updated_at, users_profile(name, email), tasks(title, description)');
 
     if (assignments) setStatuses(assignments as unknown as LiveStatus[]);
 
@@ -128,7 +164,6 @@ export default function AdminDashboard() {
 
     setLoading(true);
 
-    // 1. Create Task
     const { data: task, error: taskError } = await supabase
       .from('tasks')
       .insert([{ title, description }])
@@ -141,7 +176,6 @@ export default function AdminDashboard() {
       return;
     }
 
-    // 2. Assign Task to Selected Member
     const { error: assignError } = await supabase
       .from('task_assignments')
       .insert([{ task_id: task.id, user_id: selectedUser, status: 'Pending' }]);
@@ -149,7 +183,6 @@ export default function AdminDashboard() {
     if (assignError) {
       alert('Error assigning task');
     } else {
-      // 3. Trigger Web Push Notification if Member is subscribed
       const { data: memberProfile } = await supabase
         .from('users_profile')
         .select('push_subscription')
@@ -164,6 +197,7 @@ export default function AdminDashboard() {
             subscription: memberProfile.push_subscription,
             title: '📌 New Task Assigned!',
             body: `Task: ${title}`,
+            url: '/member',
           }),
         });
       }
@@ -320,7 +354,7 @@ export default function AdminDashboard() {
           </button>
         </form>
 
-        {/* Realtime Progress Monitor Table */}
+        {/* Realtime Progress Monitor Table with Remark Column */}
         <div className="bg-slate-900/80 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
           <div className="p-4 border-b border-slate-800 bg-slate-900/90 flex items-center justify-between">
             <h2 className="font-bold text-slate-300 text-xs uppercase tracking-wider flex items-center gap-2">
@@ -338,13 +372,14 @@ export default function AdminDashboard() {
                   <th className="p-4">Member</th>
                   <th className="p-4">Task</th>
                   <th className="p-4">Status</th>
+                  <th className="p-4">Member Remark</th>
                   <th className="p-4">Last Updated</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/80 text-xs">
                 {statuses.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="p-8 text-center text-slate-500">No task assignments found</td>
+                    <td colSpan={5} className="p-8 text-center text-slate-500">No task assignments found</td>
                   </tr>
                 ) : (
                   statuses.map((row) => (
@@ -369,6 +404,16 @@ export default function AdminDashboard() {
                         >
                           {row.status}
                         </span>
+                      </td>
+                      <td className="p-4">
+                        {row.remark ? (
+                          <div className="text-slate-300 text-xs bg-slate-800/80 p-2 rounded-xl border border-slate-700/60 flex items-center gap-1.5 max-w-xs">
+                            <MessageSquare size={13} className="text-blue-400 shrink-0" />
+                            <span>{row.remark}</span>
+                          </div>
+                        ) : (
+                          <span className="text-slate-600 text-xs italic">No remark</span>
+                        )}
                       </td>
                       <td className="p-4 text-slate-400 font-mono text-[11px]">
                         {new Date(row.updated_at).toLocaleTimeString()}
