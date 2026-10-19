@@ -132,7 +132,9 @@ export default function AdminDashboard() {
     if (userProfiles) setUsers(userProfiles);
   };
 
+  // Sign out වෙන විට Remember Me preference එක clear කිරීම
   const handleSignOut = async () => {
+    localStorage.removeItem('remember_me');
     await supabase.auth.signOut();
     router.push('/');
   };

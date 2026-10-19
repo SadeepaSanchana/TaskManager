@@ -1,9 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
-import { Lock, Mail, Shield, User, ArrowRight, CheckCircle2 } from 'lucide-react';
+import { Lock, Mail, Shield, User, ArrowRight, CheckSquare, Square } from 'lucide-react';
 
 export default function Home() {
   const supabase = createClient();
@@ -14,8 +14,37 @@ export default function Home() {
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [role, setRole] = useState<'admin' | 'member'>('member');
+  const [rememberMe, setRememberMe] = useState(true); // Default remember me state
   const [loading, setLoading] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
+
+  useEffect(() => {
+    const checkActiveSession = async () => {
+      // Remember me tick කර නොමැති නම් auto-login නොවේ
+      const isRemembered = localStorage.getItem('remember_me') === 'true';
+
+      const { data: { session } } = await supabase.auth.getSession();
+
+      if (session?.user && isRemembered) {
+        const { data: profile } = await supabase
+          .from('users_profile')
+          .select('role')
+          .eq('id', session.user.id)
+          .maybeSingle();
+
+        if (profile?.role === 'admin') {
+          router.replace('/admin');
+        } else {
+          router.replace('/member');
+        }
+      } else {
+        setCheckingSession(false);
+      }
+    };
+
+    checkActiveSession();
+  }, []);
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -45,6 +74,13 @@ export default function Home() {
 
           if (profileError) throw profileError;
 
+          // Save preference
+          if (rememberMe) {
+            localStorage.setItem('remember_me', 'true');
+          } else {
+            localStorage.removeItem('remember_me');
+          }
+
           if (role === 'admin') {
             router.push('/admin');
           } else {
@@ -60,6 +96,13 @@ export default function Home() {
         if (error) throw error;
 
         if (data.user) {
+          // Save preference based on checkbox
+          if (rememberMe) {
+            localStorage.setItem('remember_me', 'true');
+          } else {
+            localStorage.removeItem('remember_me');
+          }
+
           const { data: profile } = await supabase
             .from('users_profile')
             .select('role')
@@ -80,16 +123,25 @@ export default function Home() {
     }
   };
 
+  if (checkingSession) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center font-sans">
+        <div className="text-center space-y-3">
+          <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+          <p className="text-xs text-slate-400 font-medium">Checking session...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4 font-sans relative overflow-hidden">
       
-      {/* Professional Gradient Background Glows */}
       <div className="absolute -top-40 -left-40 w-96 h-96 bg-blue-600/20 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-purple-600/20 rounded-full blur-3xl pointer-events-none" />
 
       <div className="w-full max-w-md bg-slate-900/80 backdrop-blur-xl border border-slate-800 rounded-3xl p-6 md:p-8 shadow-2xl relative z-10 space-y-6">
         
-        {/* Branding Header */}
         <div className="text-center space-y-2">
           <div className="inline-flex p-3.5 bg-gradient-to-tr from-blue-600 to-indigo-500 text-white rounded-2xl shadow-lg shadow-blue-500/20 mb-1">
             <Lock size={26} />
@@ -108,7 +160,6 @@ export default function Home() {
           </div>
         )}
 
-        {/* Authentication Form */}
         <form onSubmit={handleAuth} className="space-y-4">
           {isSignUp && (
             <div>
@@ -161,6 +212,22 @@ export default function Home() {
                 required
               />
             </div>
+          </div>
+
+          {/* Remember Me Checkbox */}
+          <div className="flex items-center justify-between pt-1">
+            <button
+              type="button"
+              onClick={() => setRememberMe(!rememberMe)}
+              className="flex items-center gap-2 text-xs text-slate-300 hover:text-white transition cursor-pointer select-none"
+            >
+              {rememberMe ? (
+                <CheckSquare size={16} className="text-blue-500" />
+              ) : (
+                <Square size={16} className="text-slate-500" />
+              )}
+              <span>Remember me on this device</span>
+            </button>
           </div>
 
           {isSignUp && (
