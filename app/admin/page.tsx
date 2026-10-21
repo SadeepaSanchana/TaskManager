@@ -10,9 +10,10 @@ interface LiveStatus {
   task_id: string;
   status: string;
   remark: string | null;
+  completed_at: string | null;
   updated_at: string;
   users_profile: { name: string; email: string };
-  tasks: { title: string; description: string };
+  tasks: { title: string; description: string; created_at: string };
 }
 
 interface UserProfile {
@@ -121,7 +122,7 @@ export default function AdminDashboard() {
   const fetchData = async () => {
     const { data: assignments } = await supabase
       .from('task_assignments')
-      .select('id, task_id, status, remark, updated_at, users_profile(name, email), tasks(title, description)');
+      .select('id, task_id, status, remark, completed_at, updated_at, users_profile(name, email), tasks(title, description, created_at)');
 
     if (assignments) setStatuses(assignments as unknown as LiveStatus[]);
 
@@ -132,7 +133,6 @@ export default function AdminDashboard() {
     if (userProfiles) setUsers(userProfiles);
   };
 
-  // Sign out වෙන විට Remember Me preference එක clear කිරීම
   const handleSignOut = async () => {
     localStorage.removeItem('remember_me');
     await supabase.auth.signOut();
@@ -252,7 +252,7 @@ export default function AdminDashboard() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8 font-sans">
-      <div className="max-w-4xl mx-auto space-y-6">
+      <div className="max-w-5xl mx-auto space-y-6">
         
         {/* Header */}
         <div className="flex items-center justify-between bg-slate-900/90 p-5 rounded-3xl border border-slate-800 shadow-xl backdrop-blur-md">
@@ -438,13 +438,14 @@ export default function AdminDashboard() {
                   <th className="p-4">Task</th>
                   <th className="p-4">Status</th>
                   <th className="p-4">Remark</th>
+                  <th className="p-4">Dates (Added / Completed)</th>
                   <th className="p-4">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/80 text-xs">
                 {statuses.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="p-8 text-center text-slate-500">No task assignments found</td>
+                    <td colSpan={6} className="p-8 text-center text-slate-500">No task assignments found</td>
                   </tr>
                 ) : (
                   statuses.map((row) => (
@@ -479,6 +480,17 @@ export default function AdminDashboard() {
                         ) : (
                           <span className="text-slate-600 text-xs italic">No remark</span>
                         )}
+                      </td>
+                      <td className="p-4 text-[11px] text-slate-300 space-y-1">
+                        <div><span className="text-slate-500">Added:</span> {row.tasks?.created_at ? new Date(row.tasks.created_at).toLocaleString() : 'N/A'}</div>
+                        <div>
+                          <span className="text-slate-500">Completed:</span>{' '}
+                          {row.completed_at ? (
+                            <span className="text-emerald-400 font-medium">{new Date(row.completed_at).toLocaleString()}</span>
+                          ) : (
+                            <span className="text-slate-500 italic">Not yet</span>
+                          )}
+                        </div>
                       </td>
                       <td className="p-4">
                         <button

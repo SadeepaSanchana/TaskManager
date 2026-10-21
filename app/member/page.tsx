@@ -106,7 +106,6 @@ export default function MemberDashboard() {
   };
 
   const notifyAdmins = async (taskTitle: string, newStatus: string, remarkText: string) => {
-    // Fetch all admin profiles with subscriptions
     const { data: admins } = await supabase
       .from('users_profile')
       .select('push_subscription')
@@ -132,6 +131,7 @@ export default function MemberDashboard() {
 
   const updateStatus = async (id: string, newStatus: string, taskTitle: string) => {
     const currentRemark = remarks[id] || '';
+    const completedAt = newStatus === 'Completed' ? new Date().toISOString() : null;
 
     setAssignments((prev) =>
       prev.map((item) => (item.id === id ? { ...item, status: newStatus, remark: currentRemark } : item))
@@ -142,6 +142,7 @@ export default function MemberDashboard() {
       .update({
         status: newStatus,
         remark: currentRemark,
+        completed_at: completedAt,
         updated_at: new Date().toISOString(),
       })
       .eq('id', id);
@@ -152,6 +153,7 @@ export default function MemberDashboard() {
   };
 
   const handleSignOut = async () => {
+    localStorage.removeItem('remember_me');
     await supabase.auth.signOut();
     router.push('/');
   };
